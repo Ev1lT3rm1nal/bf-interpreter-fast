@@ -3,8 +3,8 @@ const std = @import("std");
 pub const Token = union(enum) {
     addition: isize,
     shifting: isize,
-    l_array,
-    r_array,
+    l_array: usize,
+    r_array: usize,
     input,
     output,
     zero,
@@ -60,6 +60,10 @@ pub const Lexer = struct {
         defer self.allocator.free(self.program);
         var next_token: ?u8 = self.nextToken();
         var stack_count: usize = 0;
+
+        var bracketStack = std.ArrayList(usize).init(self.allocator);
+        defer bracketStack.deinit();
+
         while (next_token) |token| {
             switch (token) {
                 '+', '-' => {
@@ -70,7 +74,9 @@ pub const Lexer = struct {
                         next = self.nextToken();
                     }
                     next_token = next;
-                    try self.tokens.append(Token{ .addition = counter });
+                    if (counter != 0) {
+                        try self.tokens.append(Token{ .addition = counter });
+                    }
                 },
                 '>', '<' => {
                     var counter: isize = if (token == '>') 1 else -1;
@@ -80,10 +86,13 @@ pub const Lexer = struct {
                         next = self.nextToken();
                     }
                     next_token = next;
-                    try self.tokens.append(Token{ .shifting = counter });
+                    if (counter != 0) {
+                        try self.tokens.append(Token{ .shifting = counter });
+                    }
                 },
                 '[' => {
-                    try self.tokens.append(Token.l_array);
+                    try bracketStack.append(self.tokens.items.len);
+                    try self.tokens.append(Token{ .l_array = 0 });
                     next_token = self.nextToken();
                     stack_count += 1;
                 },
@@ -91,7 +100,9 @@ pub const Lexer = struct {
                     if (stack_count == 0) {
                         return error.UnbalancedLoop;
                     }
-                    try self.tokens.append(Token.r_array);
+                    const openingBracketPos = bracketStack.pop();
+                    self.tokens.items[openingBracketPos] = Token{ .l_array = self.tokens.items.len };
+                    try self.tokens.append(Token{ .r_array = openingBracketPos });
                     next_token = self.nextToken();
                     stack_count -= 1;
                 },
@@ -137,6 +148,10 @@ pub const Runner = struct {
     pub fn run(self: *Runner) !void {
         const stdOut = std.io.getStdOut().writer();
         const stdIn = std.io.getStdIn().reader();
+        var buf = std.io.BufferedWriter(1024, @TypeOf(stdOut)){ .unbuffered_writer = stdOut };
+
+        // Get the Writer interface from BufferedWriter
+        var writer = buf.writer();
         while (self.program_pointer < self.program.len) : (self.program_pointer += 1) {
             const token = self.program[self.program_pointer];
             switch (token) {
@@ -150,35 +165,20 @@ pub const Runner = struct {
                     self.memory_pointer = pointer;
                 },
                 Token.output => {
-                    try stdOut.print("{c}", .{self.memory[self.memory_pointer]});
+                    try writer.print("{c}", .{self.memory[self.memory_pointer]});
                 },
                 Token.input => {
-                    _ = try stdIn.read(self.memory[self.memory_pointer..self.memory_pointer]);
+                    try buf.flush();
+                    self.memory[self.memory_pointer] = try stdIn.readByte();
                 },
-                Token.l_array => {
+                Token.l_array => |matching_r_array_pos| {
                     if (self.memory[self.memory_pointer] == 0) {
-                        var depth: isize = 1;
-                        while (depth != 0) {
-                            self.program_pointer += 1;
-                            switch (self.program[self.program_pointer]) {
-                                Token.l_array => depth += 1,
-                                Token.r_array => depth -= 1,
-                                else => continue,
-                            }
-                        }
+                        self.program_pointer = matching_r_array_pos;
                     }
                 },
-                Token.r_array => {
+                Token.r_array => |matching_l_array_pos| {
                     if (self.memory[self.memory_pointer] != 0) {
-                        var depth: isize = 1;
-                        while (depth != 0) {
-                            self.program_pointer -= 1;
-                            switch (self.program[self.program_pointer]) {
-                                Token.l_array => depth -= 1,
-                                Token.r_array => depth += 1,
-                                else => continue,
-                            }
-                        }
+                        self.program_pointer = matching_l_array_pos;
                     }
                 },
                 Token.zero => {
@@ -186,5 +186,7 @@ pub const Runner = struct {
                 },
             }
         }
+
+        try buf.flush();
     }
 };
