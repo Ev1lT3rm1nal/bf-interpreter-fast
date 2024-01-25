@@ -8,6 +8,8 @@ pub const Token = union(enum) {
     input,
     output,
     zero,
+    seek_zero_left,
+    seek_zero_right,
 };
 
 pub const Lexer = struct {
@@ -50,14 +52,23 @@ pub const Lexer = struct {
         self.program = self.program[0..writeIndex];
     }
 
-    pub fn optimize(self: *Lexer) !void {
-        self.program = try std.mem.replaceOwned(u8, self.allocator, self.program, "[-]", "z");
+    pub fn optimize(self: *Lexer) void {
+        const previous_size = self.program.len;
+        var new_size = previous_size;
+        new_size -= std.mem.replace(u8, self.program, "[-]", "z", self.program) * 2;
+        new_size -= std.mem.replace(u8, self.program, "[+]", "z", self.program) * 2;
+        new_size -= std.mem.replace(u8, self.program, "[<]", "l", self.program) * 2;
+        new_size -= std.mem.replace(u8, self.program, "[r]", "r", self.program) * 2;
+        new_size -= std.mem.replace(u8, self.program, "[]", "", self.program) * 2;
+        self.program = self.program[0..new_size];
+        if (new_size < previous_size) {
+            self.optimize();
+        }
     }
 
     pub fn parse(self: *Lexer) ![]Token {
         self.stripComments();
-        try self.optimize();
-        defer self.allocator.free(self.program);
+        self.optimize();
         var next_token: ?u8 = self.nextToken();
         var stack_count: usize = 0;
 
@@ -118,6 +129,14 @@ pub const Lexer = struct {
                     try self.tokens.append(Token.zero);
                     next_token = self.nextToken();
                 },
+                'l' => {
+                    try self.tokens.append(Token.seek_zero_left);
+                    next_token = self.nextToken();
+                },
+                'r' => {
+                    try self.tokens.append(Token.seek_zero_right);
+                    next_token = self.nextToken();
+                },
                 else => unreachable,
             }
         }
@@ -157,11 +176,11 @@ pub const Runner = struct {
             switch (token) {
                 Token.addition => |addition| {
                     @setRuntimeSafety(false);
-                    self.memory[self.memory_pointer] = @intCast(addition + @as(isize, self.memory[self.memory_pointer]));
+                    self.memory[self.memory_pointer] = @intCast(addition +% @as(isize, self.memory[self.memory_pointer]));
                 },
                 Token.shifting => |shift| {
                     @setRuntimeSafety(false);
-                    const pointer: usize = @intCast(shift + @as(isize, @intCast(self.memory_pointer)));
+                    const pointer: usize = @intCast(shift +% @as(isize, @intCast(self.memory_pointer)));
                     self.memory_pointer = pointer;
                 },
                 Token.output => {
@@ -183,6 +202,16 @@ pub const Runner = struct {
                 },
                 Token.zero => {
                     self.memory[self.memory_pointer] = 0;
+                },
+                Token.seek_zero_left => {
+                    while (self.memory[self.memory_pointer] != 0) {
+                        self.memory_pointer -= 1;
+                    }
+                },
+                Token.seek_zero_right => {
+                    while (self.memory[self.memory_pointer] != 0) {
+                        self.memory_pointer += 1;
+                    }
                 },
             }
         }
