@@ -12,14 +12,20 @@ pub const Token = union(enum) {
     input,
     output,
     zero,
-    seek_zero_left,
-    seek_zero_right,
+    seek_zero: isize,
 };
 
 pub const Lexer = struct {
     allocator: std.mem.Allocator,
     pointer: usize = 0,
     program: []u8,
+
+    pub fn new(allocator: std.mem.Allocator, program: []u8) Lexer {
+        return Lexer{
+            .allocator = allocator,
+            .program = program,
+        };
+    }
 
     pub fn nextToken(self: *Lexer) ?u8 {
         if (self.pointer >= self.program.len) {
@@ -29,13 +35,6 @@ pub const Lexer = struct {
 
         self.pointer += 1;
         return current;
-    }
-
-    pub fn new(allocator: std.mem.Allocator, program: []u8) Lexer {
-        return Lexer{
-            .allocator = allocator,
-            .program = program,
-        };
     }
 
     fn stripComments(self: *Lexer) void {
@@ -54,26 +53,16 @@ pub const Lexer = struct {
         self.program = self.program[0..writeIndex];
     }
 
-    fn optimizeCode(self: *Lexer) void {
-        const previous_size = self.program.len;
-        var new_size = previous_size;
-        new_size -= std.mem.replace(u8, self.program, "[-]", "z", self.program) * 2;
-        new_size -= std.mem.replace(u8, self.program, "[+]", "z", self.program) * 2;
-        new_size -= std.mem.replace(u8, self.program, "[<]", "l", self.program) * 2;
-        new_size -= std.mem.replace(u8, self.program, "[r]", "r", self.program) * 2;
-        new_size -= std.mem.replace(u8, self.program, "[]", "", self.program) * 2;
-        self.program = self.program[0..new_size];
-        if (new_size < previous_size) {
-            self.optimizeCode();
-        }
-    }
-
     pub fn optimizeTokens(self: *Lexer, tokens: []Token) ![]Token {
         var optimized_tokens = try std.ArrayList(Token).initCapacity(self.allocator, tokens.len);
         defer optimized_tokens.deinit();
 
+        var new_size = tokens.len;
+
         var index: usize = 0;
         while (index < tokens.len) : (index += 1) {
+            // Check if is the a loop for copying values
+            // Example [->>>>+<<<<]
             if (index + 5 < tokens.len and match_pattern(&[_]@typeInfo(Token).Union.tag_type.?{
                 Token.l_array,
                 Token.addition,
@@ -92,10 +81,49 @@ pub const Lexer = struct {
                 continue;
             }
 
+            // Seek zero finder
+            // Example [>>>]
+            if (index + 2 < tokens.len and match_pattern(&[_]@typeInfo(Token).Union.tag_type.?{
+                Token.l_array,
+                Token.shifting,
+                Token.r_array,
+            }, tokens[index .. index + 3])) {
+                try optimized_tokens.append(Token{ .seek_zero = tokens[index + 1].shifting });
+                index += 2;
+                continue;
+            }
+
+            // Seek zero finder
+            // Example [>>>]
+            if (index + 2 < tokens.len and match_pattern(&[_]@typeInfo(Token).Union.tag_type.?{
+                Token.l_array,
+                Token.addition,
+                Token.r_array,
+            }, tokens[index .. index + 3])) {
+                try optimized_tokens.append(Token.zero);
+                index += 2;
+                continue;
+            }
+
+            // Detects empty brackets, this disables infinity loops
+            if (index + 1 < tokens.len and match_pattern(&[_]@typeInfo(Token).Union.tag_type.?{
+                Token.l_array,
+                Token.r_array,
+            }, tokens[index .. index + 2])) {
+                index += 1;
+                continue;
+            }
+
             try optimized_tokens.append(tokens[index]);
         }
 
-        return optimized_tokens.toOwnedSlice();
+        new_size -= optimized_tokens.items.len;
+
+        if (new_size == 0) {
+            return optimized_tokens.toOwnedSlice();
+        } else {
+            return self.optimizeTokens(optimized_tokens.items);
+        }
     }
 
     pub fn matchBrackets(self: *Lexer, tokens: *[]Token) !void {
@@ -106,12 +134,8 @@ pub const Lexer = struct {
             switch (token.*) {
                 .l_array => {
                     try bracketStack.append(index);
-                    token.l_array = 0; // Se actualizará después de encontrar el corchete de cierre correspondiente
                 },
                 .r_array => {
-                    // Verifica si hay un corchete de apertura correspondiente
-
-                    // Obtiene la posición del corchete de apertura y hace que coincida con el corchete de cierre
                     const openingBracketPos = bracketStack.pop();
                     tokens.*[openingBracketPos].l_array = index;
                     token.r_array = openingBracketPos;
@@ -123,7 +147,6 @@ pub const Lexer = struct {
 
     pub fn parse(self: *Lexer) ![]Token {
         self.stripComments();
-        self.optimizeCode();
         var next_token: ?u8 = self.nextToken();
         var stack_count: usize = 0;
 
@@ -175,18 +198,6 @@ pub const Lexer = struct {
                 },
                 ',' => {
                     try tokens.append(Token.input);
-                    next_token = self.nextToken();
-                },
-                'z' => {
-                    try tokens.append(Token.zero);
-                    next_token = self.nextToken();
-                },
-                'l' => {
-                    try tokens.append(Token.seek_zero_left);
-                    next_token = self.nextToken();
-                },
-                'r' => {
-                    try tokens.append(Token.seek_zero_right);
                     next_token = self.nextToken();
                 },
                 else => unreachable,
@@ -262,14 +273,9 @@ pub const Runner = struct {
                 Token.zero => {
                     self.memory[self.memory_pointer] = 0;
                 },
-                Token.seek_zero_left => {
+                Token.seek_zero => |step| {
                     while (self.memory[self.memory_pointer] != 0) {
-                        self.memory_pointer -= 1;
-                    }
-                },
-                Token.seek_zero_right => {
-                    while (self.memory[self.memory_pointer] != 0) {
-                        self.memory_pointer += 1;
+                        self.memory_pointer = @intCast(@as(isize, @intCast(self.memory_pointer)) + step);
                     }
                 },
             }
@@ -327,6 +333,35 @@ test "memory" {
     var runner = Runner.new(tokens);
     try runner.run();
     try std.testing.expect(runner.memory[4] == 5);
+}
+
+test "seek zero" {
+    var lexer = Lexer.new(std.testing.allocator, @constCast("+++++[->+>+>+>+>+>+<<<<<<]>[>>]"));
+    const tokens = try lexer.parse();
+    defer std.testing.allocator.free(tokens);
+    var runner = Runner.new(tokens);
+    try runner.run();
+    try std.testing.expect(runner.memory_pointer == 7);
+}
+
+test "set zero" {
+    var lexer = Lexer.new(std.testing.allocator, @constCast("++++++[--]"));
+    const tokens = try lexer.parse();
+    defer std.testing.allocator.free(tokens);
+    const com_tokens = [_]@typeInfo(Token).Union.tag_type.?{
+        Token.addition,
+        Token.zero,
+    };
+    try std.testing.expect(match_pattern(&com_tokens, tokens));
+}
+
+test "infinity loop" {
+    var lexer = Lexer.new(std.testing.allocator, @constCast("+[[]]"));
+    const tokens = try lexer.parse();
+    defer std.testing.allocator.free(tokens);
+    var runner = Runner.new(tokens);
+    try runner.run();
+    try std.testing.expect(runner.memory[0] == 1);
 }
 
 // test "brackets" {
