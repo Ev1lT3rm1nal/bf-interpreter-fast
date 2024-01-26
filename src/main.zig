@@ -22,8 +22,7 @@ pub fn main() !void {
     } else @panic("No input filename declared");
     const content = try file.readToEndAlloc(alloc, std.fs.MAX_PATH_BYTES);
     defer alloc.free(content);
-    var lexer = Lexer.init(alloc, @constCast(content));
-    defer lexer.deinit();
+    var lexer = Lexer.new(alloc, @constCast(content));
     const tokens = try lexer.parse();
     defer alloc.free(tokens);
     var runner = Runner.new(tokens);

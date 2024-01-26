@@ -5,6 +5,10 @@ pub const Token = union(enum) {
     shifting: isize,
     l_array: usize,
     r_array: usize,
+    multiply: struct {
+        where: isize,
+        value: isize,
+    },
     input,
     output,
     zero,
@@ -14,7 +18,6 @@ pub const Token = union(enum) {
 
 pub const Lexer = struct {
     allocator: std.mem.Allocator,
-    tokens: std.ArrayList(Token),
     pointer: usize = 0,
     program: []u8,
 
@@ -28,15 +31,14 @@ pub const Lexer = struct {
         return current;
     }
 
-    pub fn init(allocator: std.mem.Allocator, program: []u8) Lexer {
+    pub fn new(allocator: std.mem.Allocator, program: []u8) Lexer {
         return Lexer{
             .allocator = allocator,
-            .tokens = std.ArrayList(Token).init(allocator),
             .program = program,
         };
     }
 
-    pub fn stripComments(self: *Lexer) void {
+    fn stripComments(self: *Lexer) void {
         var readIndex: usize = 0;
         var writeIndex: usize = 0;
         while (readIndex < self.program.len) {
@@ -52,7 +54,7 @@ pub const Lexer = struct {
         self.program = self.program[0..writeIndex];
     }
 
-    pub fn optimize(self: *Lexer) void {
+    fn optimizeCode(self: *Lexer) void {
         const previous_size = self.program.len;
         var new_size = previous_size;
         new_size -= std.mem.replace(u8, self.program, "[-]", "z", self.program) * 2;
@@ -62,18 +64,71 @@ pub const Lexer = struct {
         new_size -= std.mem.replace(u8, self.program, "[]", "", self.program) * 2;
         self.program = self.program[0..new_size];
         if (new_size < previous_size) {
-            self.optimize();
+            self.optimizeCode();
+        }
+    }
+
+    pub fn optimizeTokens(self: *Lexer, tokens: []Token) ![]Token {
+        var optimized_tokens = try std.ArrayList(Token).initCapacity(self.allocator, tokens.len);
+        defer optimized_tokens.deinit();
+
+        var index: usize = 0;
+        while (index < tokens.len) : (index += 1) {
+            if (index + 5 < tokens.len and match_pattern(&[_]@typeInfo(Token).Union.tag_type.?{
+                Token.l_array,
+                Token.addition,
+                Token.shifting,
+                Token.addition,
+                Token.shifting,
+                Token.r_array,
+            }, tokens[index .. index + 6]) and tokens[index + 1].addition == -1 and tokens[index + 3].addition > 0 and
+                tokens[index + 2].shifting == -tokens[index + 4].shifting)
+            {
+                try optimized_tokens.append(Token{ .multiply = .{
+                    .where = tokens[index + 2].shifting,
+                    .value = tokens[index + 3].addition,
+                } });
+                index += 5;
+                continue;
+            }
+
+            try optimized_tokens.append(tokens[index]);
+        }
+
+        return optimized_tokens.toOwnedSlice();
+    }
+
+    pub fn matchBrackets(self: *Lexer, tokens: *[]Token) !void {
+        var bracketStack = std.ArrayList(usize).init(self.allocator);
+        defer bracketStack.deinit();
+
+        for (tokens.*, 0..) |*token, index| {
+            switch (token.*) {
+                .l_array => {
+                    try bracketStack.append(index);
+                    token.l_array = 0; // Se actualizará después de encontrar el corchete de cierre correspondiente
+                },
+                .r_array => {
+                    // Verifica si hay un corchete de apertura correspondiente
+
+                    // Obtiene la posición del corchete de apertura y hace que coincida con el corchete de cierre
+                    const openingBracketPos = bracketStack.pop();
+                    tokens.*[openingBracketPos].l_array = index;
+                    token.r_array = openingBracketPos;
+                },
+                else => {},
+            }
         }
     }
 
     pub fn parse(self: *Lexer) ![]Token {
         self.stripComments();
-        self.optimize();
+        self.optimizeCode();
         var next_token: ?u8 = self.nextToken();
         var stack_count: usize = 0;
 
-        var bracketStack = std.ArrayList(usize).init(self.allocator);
-        defer bracketStack.deinit();
+        var tokens = std.ArrayList(Token).init(self.allocator);
+        defer tokens.deinit();
 
         while (next_token) |token| {
             switch (token) {
@@ -86,7 +141,7 @@ pub const Lexer = struct {
                     }
                     next_token = next;
                     if (counter != 0) {
-                        try self.tokens.append(Token{ .addition = counter });
+                        try tokens.append(Token{ .addition = counter });
                     }
                 },
                 '>', '<' => {
@@ -98,12 +153,11 @@ pub const Lexer = struct {
                     }
                     next_token = next;
                     if (counter != 0) {
-                        try self.tokens.append(Token{ .shifting = counter });
+                        try tokens.append(Token{ .shifting = counter });
                     }
                 },
                 '[' => {
-                    try bracketStack.append(self.tokens.items.len);
-                    try self.tokens.append(Token{ .l_array = 0 });
+                    try tokens.append(Token{ .l_array = 0 });
                     next_token = self.nextToken();
                     stack_count += 1;
                 },
@@ -111,30 +165,28 @@ pub const Lexer = struct {
                     if (stack_count == 0) {
                         return error.UnbalancedLoop;
                     }
-                    const openingBracketPos = bracketStack.pop();
-                    self.tokens.items[openingBracketPos] = Token{ .l_array = self.tokens.items.len };
-                    try self.tokens.append(Token{ .r_array = openingBracketPos });
+                    try tokens.append(Token{ .r_array = 0 });
                     next_token = self.nextToken();
                     stack_count -= 1;
                 },
                 '.' => {
-                    try self.tokens.append(Token.output);
+                    try tokens.append(Token.output);
                     next_token = self.nextToken();
                 },
                 ',' => {
-                    try self.tokens.append(Token.input);
+                    try tokens.append(Token.input);
                     next_token = self.nextToken();
                 },
                 'z' => {
-                    try self.tokens.append(Token.zero);
+                    try tokens.append(Token.zero);
                     next_token = self.nextToken();
                 },
                 'l' => {
-                    try self.tokens.append(Token.seek_zero_left);
+                    try tokens.append(Token.seek_zero_left);
                     next_token = self.nextToken();
                 },
                 'r' => {
-                    try self.tokens.append(Token.seek_zero_right);
+                    try tokens.append(Token.seek_zero_right);
                     next_token = self.nextToken();
                 },
                 else => unreachable,
@@ -144,11 +196,11 @@ pub const Lexer = struct {
         if (stack_count > 0) {
             return error.UnbalancedLoop;
         }
-        return try self.tokens.toOwnedSlice();
-    }
+        var optimized = try self.optimizeTokens(tokens.items);
 
-    pub fn deinit(self: *Lexer) void {
-        self.tokens.deinit();
+        try self.matchBrackets(&optimized);
+
+        return optimized;
     }
 };
 
@@ -200,6 +252,13 @@ pub const Runner = struct {
                         self.program_pointer = matching_l_array_pos;
                     }
                 },
+                Token.multiply => |value| {
+                    @setRuntimeSafety(false);
+                    self.memory[
+                        @intCast(@as(isize, @intCast(self.memory_pointer)) + value.where)
+                    ] += @intCast(@as(isize, @intCast(self.memory[self.memory_pointer])) * value.value);
+                    self.memory[self.memory_pointer] = 0;
+                },
                 Token.zero => {
                     self.memory[self.memory_pointer] = 0;
                 },
@@ -219,3 +278,61 @@ pub const Runner = struct {
         try buf.flush();
     }
 };
+
+pub fn match_pattern(pattern: []const @typeInfo(Token).Union.tag_type.?, values: []const Token) bool {
+    if (pattern.len != values.len) {
+        @panic("lenght must be equal");
+    }
+    for (values, 0..) |value, index| {
+        if (value != pattern[index]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+test "match pattern" {
+    try std.testing.expect(match_pattern(&[_]@typeInfo(Token).Union.tag_type.?{
+        Token.l_array,
+        Token.addition,
+        Token.shifting,
+        Token.addition,
+        Token.shifting,
+        Token.r_array,
+    }, &[_]Token{
+        Token{ .l_array = 6 },
+        Token{ .addition = -1 },
+        Token{ .shifting = 4 },
+        Token{ .addition = 1 },
+        Token{ .shifting = -4 },
+        Token{ .r_array = 1 },
+    }));
+}
+
+test "parsing" {
+    var lexer = Lexer.new(std.testing.allocator, @constCast("+++++[->>>>+<<<<]"));
+    const tokens = try lexer.parse();
+    defer std.testing.allocator.free(tokens);
+    const com_tokens = [_]@typeInfo(Token).Union.tag_type.?{
+        Token.addition,
+        Token.multiply,
+    };
+    try std.testing.expect(match_pattern(&com_tokens, tokens));
+}
+
+test "memory" {
+    var lexer = Lexer.new(std.testing.allocator, @constCast("+++++[->>>>+<<<<]"));
+    const tokens = try lexer.parse();
+    defer std.testing.allocator.free(tokens);
+    var runner = Runner.new(tokens);
+    try runner.run();
+    try std.testing.expect(runner.memory[4] == 5);
+}
+
+// test "brackets" {
+//     const Token = Token;
+//     _ = Token; // autofix
+//     var lexer = Lexer.init(std.testing.allocator, @constCast("+++++[->>>>+++<<<<]"));
+//     const tokens = try lexer.parse();
+//     defer std.testing.allocator.free(tokens);
+// }
