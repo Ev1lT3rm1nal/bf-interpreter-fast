@@ -20,7 +20,7 @@ pub fn main() !void {
     var file = if (arg1) |file_name| blk: {
         break :blk std.fs.cwd().openFile(file_name, .{}) catch @panic("Error opening file");
     } else @panic("No input filename declared");
-    const content = try file.readToEndAlloc(alloc, std.fs.MAX_PATH_BYTES);
+    const content = try file.readToEndAlloc(alloc, std.math.maxInt(usize));
     defer alloc.free(content);
     var lexer = Lexer.new(alloc, @constCast(content));
     const tokens = try lexer.parse();
