@@ -93,8 +93,8 @@ pub const Lexer = struct {
                 continue;
             }
 
-            // Seek zero finder
-            // Example [>>>]
+            // Set cell to zero
+            // Example [-] or [+] or even [++++]
             if (index + 2 < tokens.len and matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
                 Token.l_array,
                 Token.addition,
@@ -110,6 +110,19 @@ pub const Lexer = struct {
                 Token.l_array,
                 Token.r_array,
             }, tokens[index .. index + 2])) {
+                index += 1;
+                continue;
+            }
+
+            // Detects repeating additions even after optimizations
+            if (index + 1 < tokens.len and matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
+                Token.addition,
+                Token.addition,
+            }, tokens[index .. index + 2])) {
+                const value = tokens[index].addition + tokens[index + 1].addition;
+                if (value != 0) {
+                    try optimized_tokens.append(Token{ .addition = value });
+                }
                 index += 1;
                 continue;
             }
@@ -362,6 +375,13 @@ test "infinity loop" {
     var runner = Runner.new(tokens);
     try runner.run();
     try std.testing.expect(runner.memory[0] == 1);
+}
+
+test "optimized away" {
+    var lexer = Lexer.new(std.testing.allocator, @constCast("+++++[[]]-----"));
+    const tokens = try lexer.parse();
+    defer std.testing.allocator.free(tokens);
+    try std.testing.expect(tokens.len == 0);
 }
 
 // test "block zero memory" {
