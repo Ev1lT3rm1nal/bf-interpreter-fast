@@ -114,12 +114,25 @@ pub const Lexer = struct {
                 continue;
             }
 
-            // Detects repeating additions even after optimizations
+            // Detects repeating additions
             if (index + 1 < tokens.len and matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
                 Token.addition,
                 Token.addition,
             }, tokens[index .. index + 2])) {
                 const value = tokens[index].addition + tokens[index + 1].addition;
+                if (value != 0) {
+                    try optimized_tokens.append(Token{ .addition = value });
+                }
+                index += 1;
+                continue;
+            }
+
+            // Detects repeating shiftings
+            if (index + 1 < tokens.len and matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
+                Token.shifting,
+                Token.shifting,
+            }, tokens[index .. index + 2])) {
+                const value = tokens[index].shifting + tokens[index + 1].shifting;
                 if (value != 0) {
                     try optimized_tokens.append(Token{ .addition = value });
                 }
@@ -378,7 +391,7 @@ test "infinity loop" {
 }
 
 test "optimized away" {
-    var lexer = Lexer.new(std.testing.allocator, @constCast("+++++[[]]-----"));
+    var lexer = Lexer.new(std.testing.allocator, @constCast(">>>>+++++[[]]-----<<<<"));
     const tokens = try lexer.parse();
     defer std.testing.allocator.free(tokens);
     try std.testing.expect(tokens.len == 0);
