@@ -285,7 +285,12 @@ pub const Runner = struct {
             const token = self.program[self.program_pointer];
             switch (token) {
                 Token.addition => |addition| {
-                    self.memory[self.memory_pointer] = @intCast(addition +% @as(isize, self.memory[self.memory_pointer]));
+                    const sum: usize = @abs(addition);
+                    if (addition > 0) {
+                        self.memory[self.memory_pointer] +%= @intCast(sum);
+                    } else {
+                        self.memory[self.memory_pointer] -%= @intCast(sum);
+                    }
                 },
                 Token.shifting => |shift| {
                     var pointer = @as(isize, @intCast(self.memory_pointer)) + shift;
@@ -430,6 +435,24 @@ test "optimized away" {
     const tokens = try lexer.parse();
     defer std.testing.allocator.free(tokens);
     try std.testing.expect(tokens.len == 0);
+}
+
+test "wrapping memory" {
+    var lexer = Lexer.new(std.testing.allocator, @constCast("<"));
+    const tokens = try lexer.parse();
+    defer std.testing.allocator.free(tokens);
+    var runner = Runner.new(tokens);
+    try runner.run();
+    try std.testing.expect(runner.memory_pointer == 29999);
+}
+
+test "wrapping byte" {
+    var lexer = Lexer.new(std.testing.allocator, @constCast("-"));
+    const tokens = try lexer.parse();
+    defer std.testing.allocator.free(tokens);
+    var runner = Runner.new(tokens);
+    try runner.run();
+    try std.testing.expect(runner.memory[runner.memory_pointer] == 255);
 }
 
 // test "block zero memory" {
