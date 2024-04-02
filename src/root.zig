@@ -105,6 +105,27 @@ pub const Lexer = struct {
                 continue;
             }
 
+            // Find looping zero value
+            if (index + 2 < tokens.len and matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
+                Token.l_array,
+                Token.zero,
+                Token.r_array,
+            }, tokens[index .. index + 3])) {
+                try optimized_tokens.append(Token.zero);
+                index += 2;
+                continue;
+            }
+
+            // Delete extra additions that are useless
+            if (index + 1 < tokens.len and matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
+                Token.addition,
+                Token.zero,
+            }, tokens[index .. index + 2])) {
+                try optimized_tokens.append(Token.zero);
+                index += 1;
+                continue;
+            }
+
             // Detects empty brackets, this disables infinity loops
             if (index + 1 < tokens.len and matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
                 Token.l_array,
@@ -264,13 +285,18 @@ pub const Runner = struct {
             const token = self.program[self.program_pointer];
             switch (token) {
                 Token.addition => |addition| {
-                    @setRuntimeSafety(false);
                     self.memory[self.memory_pointer] = @intCast(addition +% @as(isize, self.memory[self.memory_pointer]));
                 },
                 Token.shifting => |shift| {
-                    @setRuntimeSafety(false);
-                    const pointer: usize = @intCast(shift +% @as(isize, @intCast(self.memory_pointer)));
-                    self.memory_pointer = pointer;
+                    var pointer = @as(isize, @intCast(self.memory_pointer)) + shift;
+
+                    if (pointer >= HeapSize) {
+                        pointer -= HeapSize;
+                    } else if (pointer < 0) {
+                        pointer += HeapSize;
+                    }
+
+                    self.memory_pointer = @intCast(pointer);
                 },
                 Token.output => {
                     try writer.print("{c}", .{self.memory[self.memory_pointer]});
@@ -371,11 +397,20 @@ test "seek zero" {
 }
 
 test "set zero" {
-    var lexer = Lexer.new(std.testing.allocator, @constCast("++++++[--]"));
+    var lexer = Lexer.new(std.testing.allocator, @constCast("+++[++++++[-]]"));
     const tokens = try lexer.parse();
     defer std.testing.allocator.free(tokens);
     const com_tokens = [_]@typeInfo(Token).Union.tag_type.?{
-        Token.addition,
+        Token.zero,
+    };
+    try std.testing.expect(matchPattern(&com_tokens, tokens));
+}
+
+test "zero repeating" {
+    var lexer = Lexer.new(std.testing.allocator, @constCast("[[[[-]]]]"));
+    const tokens = try lexer.parse();
+    defer std.testing.allocator.free(tokens);
+    const com_tokens = [_]@typeInfo(Token).Union.tag_type.?{
         Token.zero,
     };
     try std.testing.expect(matchPattern(&com_tokens, tokens));
