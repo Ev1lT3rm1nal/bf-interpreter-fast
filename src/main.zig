@@ -18,7 +18,7 @@ pub fn main() !void {
     _ = args.skip();
     const arg1 = args.next();
     var file = if (arg1) |file_name| blk: {
-        break :blk std.fs.cwd().openFile(file_name, .{}) catch @panic("Error opening file");
+        break :blk try std.fs.cwd().openFile(file_name, .{});
     } else @panic("No input filename declared");
     const content = try file.readToEndAlloc(alloc, std.math.maxInt(usize));
     defer alloc.free(content);
