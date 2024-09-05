@@ -1,6 +1,18 @@
 const std = @import("std");
 
-pub const Token = union(enum) {
+pub const TokenType = enum(u8) {
+    addition,
+    shifting,
+    l_array,
+    r_array,
+    multiply,
+    input,
+    output,
+    zero,
+    seek_zero,
+};
+
+pub const Token = union(TokenType) {
     addition: isize,
     shifting: isize,
     l_array: usize,
@@ -63,7 +75,7 @@ pub const Lexer = struct {
         while (index < tokens.len) : (index += 1) {
             // Check if is the a loop for copying values
             // Example [->>>>+<<<<]
-            if (index + 5 < tokens.len and matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
+            if (index + 5 < tokens.len and matchPattern(&[_]TokenType{
                 Token.l_array,
                 Token.addition,
                 Token.shifting,
@@ -83,7 +95,7 @@ pub const Lexer = struct {
 
             // Seek zero finder
             // Example [>>>]
-            if (index + 2 < tokens.len and matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
+            if (index + 2 < tokens.len and matchPattern(&[_]TokenType{
                 Token.l_array,
                 Token.shifting,
                 Token.r_array,
@@ -95,7 +107,7 @@ pub const Lexer = struct {
 
             // Set cell to zero
             // Example [-] or [+] or even [++++]
-            if (index + 2 < tokens.len and matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
+            if (index + 2 < tokens.len and matchPattern(&[_]TokenType{
                 Token.l_array,
                 Token.addition,
                 Token.r_array,
@@ -106,7 +118,7 @@ pub const Lexer = struct {
             }
 
             // Find looping zero value
-            if (index + 2 < tokens.len and matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
+            if (index + 2 < tokens.len and matchPattern(&[_]TokenType{
                 Token.l_array,
                 Token.zero,
                 Token.r_array,
@@ -117,7 +129,7 @@ pub const Lexer = struct {
             }
 
             // Delete extra additions that are useless
-            if (index + 1 < tokens.len and matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
+            if (index + 1 < tokens.len and matchPattern(&[_]TokenType{
                 Token.addition,
                 Token.zero,
             }, tokens[index .. index + 2])) {
@@ -127,7 +139,7 @@ pub const Lexer = struct {
             }
 
             // Detects empty brackets, this disables infinity loops
-            if (index + 1 < tokens.len and matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
+            if (index + 1 < tokens.len and matchPattern(&[_]TokenType{
                 Token.l_array,
                 Token.r_array,
             }, tokens[index .. index + 2])) {
@@ -136,7 +148,7 @@ pub const Lexer = struct {
             }
 
             // Detects repeating additions
-            if (index + 1 < tokens.len and matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
+            if (index + 1 < tokens.len and matchPattern(&[_]TokenType{
                 Token.addition,
                 Token.addition,
             }, tokens[index .. index + 2])) {
@@ -149,7 +161,7 @@ pub const Lexer = struct {
             }
 
             // Detects repeating shiftings
-            if (index + 1 < tokens.len and matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
+            if (index + 1 < tokens.len and matchPattern(&[_]TokenType{
                 Token.shifting,
                 Token.shifting,
             }, tokens[index .. index + 2])) {
@@ -342,7 +354,7 @@ pub const Runner = struct {
     }
 };
 
-pub fn matchPattern(pattern: []const @typeInfo(Token).Union.tag_type.?, values: []const Token) bool {
+pub fn matchPattern(pattern: []const TokenType, values: []const Token) bool {
     if (pattern.len != values.len) {
         @panic("lenght must be equal");
     }
@@ -355,7 +367,7 @@ pub fn matchPattern(pattern: []const @typeInfo(Token).Union.tag_type.?, values: 
 }
 
 test "match pattern" {
-    try std.testing.expect(matchPattern(&[_]@typeInfo(Token).Union.tag_type.?{
+    try std.testing.expect(matchPattern(&[_]TokenType{
         Token.l_array,
         Token.addition,
         Token.shifting,
@@ -376,7 +388,7 @@ test "parsing" {
     var lexer = Lexer.new(std.testing.allocator, @constCast("+++++[->>>>+<<<<]"));
     const tokens = try lexer.parse();
     defer std.testing.allocator.free(tokens);
-    const com_tokens = [_]@typeInfo(Token).Union.tag_type.?{
+    const com_tokens = [_]TokenType{
         Token.addition,
         Token.multiply,
     };
@@ -405,7 +417,7 @@ test "set zero" {
     var lexer = Lexer.new(std.testing.allocator, @constCast("+++[++++++[-]]"));
     const tokens = try lexer.parse();
     defer std.testing.allocator.free(tokens);
-    const com_tokens = [_]@typeInfo(Token).Union.tag_type.?{
+    const com_tokens = [_]TokenType{
         Token.zero,
     };
     try std.testing.expect(matchPattern(&com_tokens, tokens));
@@ -415,7 +427,7 @@ test "zero repeating" {
     var lexer = Lexer.new(std.testing.allocator, @constCast("[[[[-]]]]"));
     const tokens = try lexer.parse();
     defer std.testing.allocator.free(tokens);
-    const com_tokens = [_]@typeInfo(Token).Union.tag_type.?{
+    const com_tokens = [_]TokenType{
         Token.zero,
     };
     try std.testing.expect(matchPattern(&com_tokens, tokens));
