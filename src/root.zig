@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const TokenType = enum(u8) {
+    end,
     addition,
     shifting,
     l_array,
@@ -13,6 +14,7 @@ pub const TokenType = enum(u8) {
 };
 
 pub const Token = union(TokenType) {
+    end,
     addition: isize,
     shifting: isize,
     l_array: usize,
@@ -293,61 +295,78 @@ pub const Runner = struct {
 
         // Get the Writer interface from BufferedWriter
         var writer = buf.writer();
-        while (self.program_pointer < self.program.len) : (self.program_pointer += 1) {
-            const token = self.program[self.program_pointer];
-            switch (token) {
-                Token.addition => |addition| {
-                    const sum: usize = @abs(addition);
-                    if (addition > 0) {
-                        self.memory[self.memory_pointer] +%= @intCast(sum);
-                    } else {
-                        self.memory[self.memory_pointer] -%= @intCast(sum);
-                    }
-                },
-                Token.shifting => |shift| {
-                    var pointer = @as(isize, @intCast(self.memory_pointer)) + shift;
 
-                    if (pointer >= HeapSize) {
-                        pointer -= HeapSize;
-                    } else if (pointer < 0) {
-                        pointer += HeapSize;
-                    }
+        computed: switch (self.program[self.program_pointer]) {
+            Token.addition => |addition| {
+                const sum: usize = @abs(addition);
+                if (addition > 0) {
+                    self.memory[self.memory_pointer] +%= @intCast(sum);
+                } else {
+                    self.memory[self.memory_pointer] -%= @intCast(sum);
+                }
+                self.program_pointer += 1;
+                continue :computed self.program[self.program_pointer];
+            },
+            Token.shifting => |shift| {
+                var pointer = @as(isize, @intCast(self.memory_pointer)) + shift;
 
-                    self.memory_pointer = @intCast(pointer);
-                },
-                Token.output => {
-                    try writer.print("{c}", .{self.memory[self.memory_pointer]});
-                },
-                Token.input => {
-                    try buf.flush();
-                    self.memory[self.memory_pointer] = try stdIn.readByte();
-                },
-                Token.l_array => |matching_r_array_pos| {
-                    if (self.memory[self.memory_pointer] == 0) {
-                        self.program_pointer = matching_r_array_pos;
-                    }
-                },
-                Token.r_array => |matching_l_array_pos| {
-                    if (self.memory[self.memory_pointer] != 0) {
-                        self.program_pointer = matching_l_array_pos;
-                    }
-                },
-                Token.multiply => |value| {
-                    @setRuntimeSafety(false);
-                    self.memory[
-                        @intCast(@as(isize, @intCast(self.memory_pointer)) + value.where)
-                    ] += @intCast(@as(isize, @intCast(self.memory[self.memory_pointer])) * value.value);
-                    self.memory[self.memory_pointer] = 0;
-                },
-                Token.zero => {
-                    self.memory[self.memory_pointer] = 0;
-                },
-                Token.seek_zero => |step| {
-                    while (self.memory[self.memory_pointer] != 0) {
-                        self.memory_pointer = @intCast(@as(isize, @intCast(self.memory_pointer)) + step);
-                    }
-                },
-            }
+                if (pointer >= HeapSize) {
+                    pointer -= HeapSize;
+                } else if (pointer < 0) {
+                    pointer += HeapSize;
+                }
+
+                self.memory_pointer = @intCast(pointer);
+                self.program_pointer += 1;
+                continue :computed self.program[self.program_pointer];
+            },
+            Token.output => {
+                try writer.print("{c}", .{self.memory[self.memory_pointer]});
+                self.program_pointer += 1;
+                continue :computed self.program[self.program_pointer];
+            },
+            Token.input => {
+                try buf.flush();
+                self.memory[self.memory_pointer] = try stdIn.readByte();
+                self.program_pointer += 1;
+                continue :computed self.program[self.program_pointer];
+            },
+            Token.l_array => |matching_r_array_pos| {
+                if (self.memory[self.memory_pointer] == 0) {
+                    self.program_pointer = matching_r_array_pos;
+                }
+                self.program_pointer += 1;
+                continue :computed self.program[self.program_pointer];
+            },
+            Token.r_array => |matching_l_array_pos| {
+                if (self.memory[self.memory_pointer] != 0) {
+                    self.program_pointer = matching_l_array_pos;
+                }
+                self.program_pointer += 1;
+                continue :computed self.program[self.program_pointer];
+            },
+            Token.multiply => |value| {
+                @setRuntimeSafety(false);
+                self.memory[
+                    @intCast(@as(isize, @intCast(self.memory_pointer)) + value.where)
+                ] += @intCast(@as(isize, @intCast(self.memory[self.memory_pointer])) * value.value);
+                self.memory[self.memory_pointer] = 0;
+                self.program_pointer += 1;
+                continue :computed self.program[self.program_pointer];
+            },
+            Token.zero => {
+                self.memory[self.memory_pointer] = 0;
+                self.program_pointer += 1;
+                continue :computed self.program[self.program_pointer];
+            },
+            Token.seek_zero => |step| {
+                while (self.memory[self.memory_pointer] != 0) {
+                    self.memory_pointer = @intCast(@as(isize, @intCast(self.memory_pointer)) + step);
+                }
+                self.program_pointer += 1;
+                continue :computed self.program[self.program_pointer];
+            },
+            Token.end => {},
         }
 
         try buf.flush();
