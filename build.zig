@@ -34,7 +34,15 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .single_threaded = true,
     });
+
+    exe.want_lto = true;
+    exe.link_data_sections = true;
+    exe.link_function_sections = true;
+    exe.link_gc_sections = true;
+    exe.link_z_lazy = true;
+    exe.link_z_notext = true;
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
