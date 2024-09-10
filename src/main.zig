@@ -26,5 +26,5 @@ pub fn main() !void {
     const tokens = try lexer.parse();
     defer alloc.free(tokens);
     var runner = Runner.new(tokens);
-    try runner.run();
+    try runner.run(alloc);
 }
