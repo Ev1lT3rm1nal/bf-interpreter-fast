@@ -181,6 +181,7 @@ pub const Lexer = struct {
         new_size -= optimized_tokens.items.len;
 
         if (new_size == 0) {
+            try optimized_tokens.append(.end);
             return optimized_tokens.toOwnedSlice();
         } else {
             return self.optimizeTokens(optimized_tokens.items);

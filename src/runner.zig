@@ -73,7 +73,10 @@ pub const Runner = struct {
             },
             Token.input => {
                 try buf.flush();
-                self.memory[self.memory_pointer] = try stdIn.readByte();
+                const out = stdIn.readByte() catch null;
+                if (out) |char| {
+                    self.memory[self.memory_pointer] = char;
+                }
                 self.program_pointer += 1;
                 continue :computed token_types[self.program_pointer];
             },
