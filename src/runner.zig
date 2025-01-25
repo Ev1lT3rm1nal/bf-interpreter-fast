@@ -11,10 +11,7 @@ const TokenList = std.MultiArrayList(Token);
 const HeapSize = 30000;
 
 pub const Runner = struct {
-    memory: [HeapSize]u8 = [_]u8{0} ** HeapSize,
     program: []Token,
-    program_pointer: usize = 0,
-    memory_pointer: usize = 0,
 
     pub fn new(tokens: []Token) Runner {
         return .{ .program = tokens };
@@ -37,80 +34,84 @@ pub const Runner = struct {
         const token_types = sliced.items(.tags);
         const data = sliced.items(.data);
 
+        var memory: [HeapSize]u8 = @splat(0);
+        var memory_pointer: usize = 0;
+        var program_pointer: usize = 0;
+
         // Get the Writer interface from BufferedWriter
         var writer = buf.writer();
 
-        computed: switch (token_types[self.program_pointer]) {
+        computed: switch (token_types[program_pointer]) {
             Token.addition => {
-                const addition = data[self.program_pointer].addition;
+                const addition = data[program_pointer].addition;
                 const sum: usize = @abs(addition);
                 if (addition > 0) {
-                    self.memory[self.memory_pointer] +%= @intCast(sum);
+                    memory[memory_pointer] +%= @intCast(sum);
                 } else {
-                    self.memory[self.memory_pointer] -%= @intCast(sum);
+                    memory[memory_pointer] -%= @intCast(sum);
                 }
-                self.program_pointer += 1;
-                continue :computed token_types[self.program_pointer];
+                program_pointer += 1;
+                continue :computed token_types[program_pointer];
             },
             Token.shifting => {
-                const shift = data[self.program_pointer].shifting;
-                const pointer = @as(isize, @intCast(self.memory_pointer)) + shift;
-                self.memory_pointer = @intCast(pointer);
-                self.program_pointer += 1;
-                continue :computed token_types[self.program_pointer];
+                const shift = data[program_pointer].shifting;
+                const pointer = @as(isize, @intCast(memory_pointer)) + shift;
+                memory_pointer = @intCast(pointer);
+                program_pointer += 1;
+                continue :computed token_types[program_pointer];
             },
             Token.output => {
-                try writer.print("{c}", .{self.memory[self.memory_pointer]});
-                self.program_pointer += 1;
-                continue :computed token_types[self.program_pointer];
+                try writer.print("{c}", .{memory[memory_pointer]});
+                program_pointer += 1;
+                continue :computed token_types[program_pointer];
             },
             Token.input => {
                 try buf.flush();
                 const out = stdIn.readByte() catch null;
                 if (out) |char| {
-                    self.memory[self.memory_pointer] = char;
+                    memory[memory_pointer] = char;
                 }
-                self.program_pointer += 1;
-                continue :computed token_types[self.program_pointer];
+                program_pointer += 1;
+                continue :computed token_types[program_pointer];
             },
             Token.l_array => {
-                const matching_r_array_pos = data[self.program_pointer].l_array;
-                if (self.memory[self.memory_pointer] == 0) {
-                    self.program_pointer = matching_r_array_pos;
+                const matching_r_array_pos = data[program_pointer].l_array;
+                if (memory[memory_pointer] == 0) {
+                    program_pointer = matching_r_array_pos;
                 }
-                self.program_pointer += 1;
-                continue :computed token_types[self.program_pointer];
+                program_pointer += 1;
+                continue :computed token_types[program_pointer];
             },
             Token.r_array => {
-                const matching_l_array_pos = data[self.program_pointer].r_array;
-                if (self.memory[self.memory_pointer] != 0) {
-                    self.program_pointer = matching_l_array_pos;
+                const matching_l_array_pos = data[program_pointer].r_array;
+                if (memory[memory_pointer] != 0) {
+                    program_pointer = matching_l_array_pos;
                 }
-                self.program_pointer += 1;
-                continue :computed token_types[self.program_pointer];
+                program_pointer += 1;
+                continue :computed token_types[program_pointer];
             },
             Token.multiply => {
-                const value = data[self.program_pointer].multiply;
+                const value = data[program_pointer].multiply;
                 @setRuntimeSafety(false);
-                self.memory[
-                    @intCast(@as(isize, @intCast(self.memory_pointer)) + value.where)
-                ] += @intCast(@as(isize, @intCast(self.memory[self.memory_pointer])) * value.value);
-                self.memory[self.memory_pointer] = 0;
-                self.program_pointer += 1;
-                continue :computed token_types[self.program_pointer];
+                const index: usize = @intCast(@as(isize, @intCast(memory_pointer)) + value.where);
+                const memory_value: u8 = @intCast(@as(isize, @intCast(memory[memory_pointer])) * value.value);
+                memory[index] += memory_value;
+                memory[memory_pointer] = 0;
+                program_pointer += 1;
+                continue :computed token_types[program_pointer];
             },
             Token.zero => {
-                self.memory[self.memory_pointer] = 0;
-                self.program_pointer += 1;
-                continue :computed token_types[self.program_pointer];
+                memory[memory_pointer] = 0;
+                program_pointer += 1;
+                continue :computed token_types[program_pointer];
             },
             Token.seek_zero => {
-                const step = data[self.program_pointer].seek_zero;
-                while (self.memory[self.memory_pointer] != 0) {
-                    self.memory_pointer = @intCast(@as(isize, @intCast(self.memory_pointer)) + step);
+                const step = data[program_pointer].seek_zero;
+                while (memory[memory_pointer] != 0) {
+                    memory_pointer = @intCast(@as(isize, @intCast(memory_pointer)) + step);
                 }
-                self.program_pointer += 1;
-                continue :computed token_types[self.program_pointer];
+                program_pointer += 1;
+                continue :computed token_types[program_pointer];
             },
             Token.end => break :computed,
         }
