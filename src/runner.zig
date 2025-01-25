@@ -54,14 +54,7 @@ pub const Runner = struct {
             },
             Token.shifting => {
                 const shift = data[self.program_pointer].shifting;
-                var pointer = @as(isize, @intCast(self.memory_pointer)) + shift;
-
-                if (pointer >= HeapSize) {
-                    pointer -= HeapSize;
-                } else if (pointer < 0) {
-                    pointer += HeapSize;
-                }
-
+                const pointer = @as(isize, @intCast(self.memory_pointer)) + shift;
                 self.memory_pointer = @intCast(pointer);
                 self.program_pointer += 1;
                 continue :computed token_types[self.program_pointer];
