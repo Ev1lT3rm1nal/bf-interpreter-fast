@@ -1,9 +1,19 @@
 const std = @import("std");
 
+const ArrayBoundBehaviour = enum {
+    None,
+    Abort,
+    Wrap,
+    Block,
+};
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
 
     const optimize = b.standardOptimizeOption(.{});
+
+    var options = b.addOptions();
+    options.addOption(ArrayBoundBehaviour, "arraybounds", b.option(ArrayBoundBehaviour, "arraybounds", "Array bounds behaviour") orelse .None);
 
     const lib = b.addStaticLibrary(.{
         .name = "bf-interpreter",
@@ -22,8 +32,10 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .single_threaded = true,
     });
+    exe.root_module.addOptions("options", options);
 
     exe.want_lto = true;
+    exe.use_llvm = true;
     exe.link_data_sections = true;
     exe.link_function_sections = true;
     exe.link_gc_sections = true;
@@ -48,6 +60,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    lib_unit_tests.root_module.addOptions("options", options);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
