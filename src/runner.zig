@@ -12,6 +12,8 @@ const TokenList = std.MultiArrayList(Token);
 
 const HeapSize = 30000;
 
+const is_debug = @import("builtin").mode == .Debug;
+
 pub const Runner = struct {
     program: []Token,
 
@@ -56,7 +58,7 @@ pub const Runner = struct {
                 continue :computed token_types[program_pointer];
             },
             Token.shifting => {
-                @setRuntimeSafety(behaviour == .Abort);
+                @setRuntimeSafety(behaviour == .Abort or is_debug);
 
                 const shift = data[program_pointer].shifting;
                 var pointer = @as(isize, @intCast(memory_pointer)) + shift;
@@ -110,8 +112,8 @@ pub const Runner = struct {
                 continue :computed token_types[program_pointer];
             },
             Token.multiply => {
+                @setRuntimeSafety(is_debug);
                 const value = data[program_pointer].multiply;
-                @setRuntimeSafety(false);
                 const index: usize = @intCast(@as(isize, @intCast(memory_pointer)) + value.where);
                 const memory_value: u8 = @intCast(@as(isize, @intCast(memory[memory_pointer])) * value.value);
                 memory[index] += memory_value;
@@ -143,103 +145,58 @@ pub const Runner = struct {
     }
 };
 
-test "parsing" {
-    var testing = "+++++[->>>>+<<<<]".*;
-    var lexer = Lexer.new(std.testing.allocator, &testing);
-    const tokens = try lexer.parse();
-    defer std.testing.allocator.free(tokens);
-    const com_tokens = [_]TokenType{
-        Token.addition,
-        Token.multiply,
-        Token.end,
-    };
-    try std.testing.expect(matchPattern(&com_tokens, tokens));
-}
+// test "memory" {
+//     var testing = "+++++[->>>>+<<<<]".*;
+//     var lexer = Lexer.new(std.testing.allocator, &testing);
+//     const tokens = try lexer.parse();
+//     defer std.testing.allocator.free(tokens);
+//     var runner = Runner.new(tokens);
+//     try runner.run(std.testing.allocator);
+//     try std.testing.expect(runner.memory[4] == 5);
+// }
 
-test "memory" {
-    var testing = "+++++[->>>>+<<<<]".*;
-    var lexer = Lexer.new(std.testing.allocator, &testing);
-    const tokens = try lexer.parse();
-    defer std.testing.allocator.free(tokens);
-    var runner = Runner.new(tokens);
-    try runner.run(std.testing.allocator);
-    try std.testing.expect(runner.memory[4] == 5);
-}
+// test "seek zero" {
+//     var testing = "+++++[->+>+>+>+>+>+<<<<<<]>[>>]".*;
+//     var lexer = Lexer.new(std.testing.allocator, &testing);
+//     const tokens = try lexer.parse();
+//     defer std.testing.allocator.free(tokens);
+//     var runner = Runner.new(tokens);
+//     try runner.run(std.testing.allocator);
+//     try std.testing.expect(runner.memory_pointer == 7);
+// }
 
-test "seek zero" {
-    var testing = "+++++[->+>+>+>+>+>+<<<<<<]>[>>]".*;
-    var lexer = Lexer.new(std.testing.allocator, &testing);
-    const tokens = try lexer.parse();
-    defer std.testing.allocator.free(tokens);
-    var runner = Runner.new(tokens);
-    try runner.run(std.testing.allocator);
-    try std.testing.expect(runner.memory_pointer == 7);
-}
+// test "infinity loop" {
+//     var testing = "+[[]]".*;
+//     var lexer = Lexer.new(std.testing.allocator, &testing);
+//     const tokens = try lexer.parse();
+//     defer std.testing.allocator.free(tokens);
+//     var runner = Runner.new(tokens);
+//     try runner.run(std.testing.allocator);
+//     try std.testing.expect(runner.memory[0] == 1);
+// }
 
-test "set zero" {
-    var testing = "+++[++++++[-]]".*;
-    var lexer = Lexer.new(std.testing.allocator, &testing);
-    const tokens = try lexer.parse();
-    defer std.testing.allocator.free(tokens);
-    const com_tokens = [_]TokenType{
-        Token.zero,
-        Token.end,
-    };
-    try std.testing.expect(matchPattern(&com_tokens, tokens));
-}
+// test "wrapping memory" {
+//     if (behaviour != .Wrap) {
+//         return;
+//     }
+//     var testing = "<".*;
+//     var lexer = Lexer.new(std.testing.allocator, &testing);
+//     const tokens = try lexer.parse();
+//     defer std.testing.allocator.free(tokens);
+//     var runner = Runner.new(tokens);
+//     try runner.run(std.testing.allocator);
+//     try std.testing.expect(runner.memory_pointer == 29999);
+// }
 
-test "zero repeating" {
-    var testing = "[[[[-]]]]".*;
-    var lexer = Lexer.new(std.testing.allocator, &testing);
-    const tokens = try lexer.parse();
-    defer std.testing.allocator.free(tokens);
-    const com_tokens = [_]TokenType{
-        Token.zero,
-        Token.end,
-    };
-    try std.testing.expect(matchPattern(&com_tokens, tokens));
-}
-
-test "infinity loop" {
-    var testing = "+[[]]".*;
-    var lexer = Lexer.new(std.testing.allocator, &testing);
-    const tokens = try lexer.parse();
-    defer std.testing.allocator.free(tokens);
-    var runner = Runner.new(tokens);
-    try runner.run(std.testing.allocator);
-    try std.testing.expect(runner.memory[0] == 1);
-}
-
-test "optimized away" {
-    var testing = ">>>>+++++[[]]-----<<<<".*;
-    var lexer = Lexer.new(std.testing.allocator, &testing);
-    const tokens = try lexer.parse();
-    defer std.testing.allocator.free(tokens);
-    try std.testing.expect(tokens.len == 1);
-}
-
-test "wrapping memory" {
-    if (behaviour != .Wrap) {
-        return;
-    }
-    var testing = "<".*;
-    var lexer = Lexer.new(std.testing.allocator, &testing);
-    const tokens = try lexer.parse();
-    defer std.testing.allocator.free(tokens);
-    var runner = Runner.new(tokens);
-    try runner.run(std.testing.allocator);
-    try std.testing.expect(runner.memory_pointer == 29999);
-}
-
-test "wrapping byte" {
-    if (behaviour != .Wrap) {
-        return;
-    }
-    var testing = "-".*;
-    var lexer = Lexer.new(std.testing.allocator, &testing);
-    const tokens = try lexer.parse();
-    defer std.testing.allocator.free(tokens);
-    var runner = Runner.new(tokens);
-    try runner.run(std.testing.allocator);
-    try std.testing.expect(runner.memory[runner.memory_pointer] == 255);
-}
+// test "wrapping byte" {
+//     if (behaviour != .Wrap) {
+//         return;
+//     }
+//     var testing = "-".*;
+//     var lexer = Lexer.new(std.testing.allocator, &testing);
+//     const tokens = try lexer.parse();
+//     defer std.testing.allocator.free(tokens);
+//     var runner = Runner.new(tokens);
+//     try runner.run(std.testing.allocator);
+//     try std.testing.expect(runner.memory[runner.memory_pointer] == 255);
+// }

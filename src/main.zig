@@ -4,7 +4,7 @@ const Lexer = @import("root.zig").Lexer;
 const Runner = @import("root.zig").Runner;
 
 pub fn main() !void {
-    var ally = if (builtin.mode == .Debug) std.heap.GeneralPurposeAllocator(.{}){} else std.heap.page_allocator;
+    var ally = if (builtin.mode == .Debug) std.heap.GeneralPurposeAllocator(.{}){} else std.heap.smp_allocator;
     defer if (builtin.mode == .Debug) {
         _ = ally.deinit();
     };

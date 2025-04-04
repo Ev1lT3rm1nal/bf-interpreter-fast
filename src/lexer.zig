@@ -200,7 +200,7 @@ pub const Lexer = struct {
                     try bracketStack.append(index);
                 },
                 .r_array => {
-                    const openingBracketPos = bracketStack.pop();
+                    const openingBracketPos = bracketStack.pop().?;
                     tokens.*[openingBracketPos].l_array = index;
                     token.r_array = openingBracketPos;
                 },
@@ -292,6 +292,51 @@ pub fn matchPattern(pattern: []const TokenType, values: []const Token) bool {
     return true;
 }
 
+test "parsing" {
+    var testing = "+++++[->>>>+<<<<]".*;
+    var lexer = Lexer.new(std.testing.allocator, &testing);
+    const tokens = try lexer.parse();
+    defer std.testing.allocator.free(tokens);
+    const com_tokens = [_]TokenType{
+        Token.addition,
+        Token.multiply,
+        Token.end,
+    };
+    try std.testing.expect(matchPattern(&com_tokens, tokens));
+}
+
+test "set zero" {
+    var testing = "+++[++++++[-]]".*;
+    var lexer = Lexer.new(std.testing.allocator, &testing);
+    const tokens = try lexer.parse();
+    defer std.testing.allocator.free(tokens);
+    const com_tokens = [_]TokenType{
+        Token.zero,
+        Token.end,
+    };
+    try std.testing.expect(matchPattern(&com_tokens, tokens));
+}
+
+test "zero repeating" {
+    var testing = "[[[[-]]]]".*;
+    var lexer = Lexer.new(std.testing.allocator, &testing);
+    const tokens = try lexer.parse();
+    defer std.testing.allocator.free(tokens);
+    const com_tokens = [_]TokenType{
+        Token.zero,
+        Token.end,
+    };
+    try std.testing.expect(matchPattern(&com_tokens, tokens));
+}
+
+test "optimized away" {
+    var testing = ">>>>+++++[[]]-----<<<<".*;
+    var lexer = Lexer.new(std.testing.allocator, &testing);
+    const tokens = try lexer.parse();
+    defer std.testing.allocator.free(tokens);
+    try std.testing.expect(tokens.len == 1);
+}
+
 test "match pattern" {
     try std.testing.expect(matchPattern(&[_]TokenType{
         Token.l_array,
@@ -308,4 +353,15 @@ test "match pattern" {
         Token{ .shifting = -4 },
         Token{ .r_array = 1 },
     }));
+}
+
+test "set value" {
+    var testing = "[-]++++++".*;
+    var lexer = Lexer.new(std.testing.allocator, &testing);
+    const tokens = try lexer.parse();
+    defer std.testing.allocator.free(tokens);
+    try std.testing.expectEqualSlices(Token, &.{
+        Token{ .set = 6 },
+        Token.end,
+    }, tokens);
 }
