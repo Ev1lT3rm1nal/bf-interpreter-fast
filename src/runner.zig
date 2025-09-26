@@ -10,7 +10,7 @@ const matchPattern = @import("lexer.zig").matchPattern;
 
 const TokenList = std.MultiArrayList(Token);
 
-const HeapSize = 30000;
+const HeapSize = 1 << 15;
 
 const is_debug = @import("builtin").mode == .Debug;
 
@@ -82,7 +82,7 @@ pub const Runner = struct {
                 continue :computed token_types[program_pointer];
             },
             Token.output => {
-                try writer.print("{c}", .{memory[memory_pointer]});
+                try writer.writeByte(memory[memory_pointer]);
                 program_pointer += 1;
                 continue :computed token_types[program_pointer];
             },
